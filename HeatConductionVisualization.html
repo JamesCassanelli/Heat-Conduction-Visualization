@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+
+<div align="center">
+	<select id="Material">
+		<option value="110">Copper</option>
+		<option value="1.25">Granite</option>
+		<option value="0.08">Rubber</option>
+	</select>
+					
+	<select id="Heat_Size">
+		<option value="30">Small</option>
+		<option value="17">Medium</option>
+		<option value="10">Large</option>
+	</select>
+					
+	<select id="Temperature">
+		<option value=100>Hot</option>
+		<option value="50">Warm</option>
+		<option value="25">Cool</option>
+	</select>
+</div>
+					
+<br>
+					
+<div align="center" oncontextmenu="return false" onselectstart="return false" ondragstart="return false">
+	<canvas class="heat_plot" id="heat_plot" width="500" height="500" style="border:2px solid #000000;"></canvas>
+</div>
+					
+<div align="center" oncontextmenu="return false" onselectstart="return false" ondragstart="return false">
+	<canvas id="color_bar" width="500" height="10" style="border:2px solid #000000;display: block"></canvas>
+	<p align="center" style="margin-right: 155px;display: inline-block;">COOL</p>
+	<p align="center" style="display: inline">TEMPERATURE</p>
+	<p align="center" style="margin-left: 155px;display: inline-block;">HOT</p>
+</div>
+					
+<script src="https://d3js.org/d3-array.v1.min.js"></script>
+<script src="https://d3js.org/d3-color.v1.min.js"></script>
+<script src="https://d3js.org/d3-contour.v1.min.js"></script>
+<script src="https://d3js.org/d3-geo.v1.min.js"></script>
+<script src="https://d3js.org/d3-interpolate.v1.min.js"></script>
+<script src="https://d3js.org/d3-scale.v1.min.js"></script>
+<script src="https://d3js.org/d3-scale-chromatic.v1.min.js"></script>
+<script src="https://d3js.org/d3-timer.v1.min.js"></script>
+					
+<script>
+					
+//Extract user-defined values for material, heated region size, and relative temperature
+var mat = document.getElementById("Material"), size = document.getElementById("Heat_Size"), temp = document.getElementById("Temperature");
+//Assign user-defined values to variables for heat equation functions (Thermal diffusivity, Kt (m2/s*10^6), radius of heat patch, r_scale (m), Initial heat patch temperature, Tin (K))
+var Kt = parseFloat(mat.options[mat.selectedIndex].value), r_scale = parseInt(size.options[size.selectedIndex].value), Tin = parseInt(temp.options[temp.selectedIndex].value);
+					
+//Colorize temperature color bar
+var c = document.getElementById("color_bar");
+var ctx = c.getContext("2d");
+					
+// Create colorbar gradient
+var grd = ctx.createLinearGradient(0,0,500,0);
+grd.addColorStop(0,"navy");
+grd.addColorStop(0.5,"white");
+grd.addColorStop(1,"FireBrick");
+					
+// Fill colorbar with gradient
+ctx.fillStyle = grd;
+ctx.fillRect(0,0,500,10);
+					
+//Declare variables and construct arrays (number of horiztonal and vertical grid nodes, n and m, number of time steps in each iteration t, spatial steps dx and dy (m), time step dt (1/2 von Neumann stability criteria for max thermal diffisuvity, s))
+var canvas = document.querySelector("canvas"), n = 100, m = 100, T = new Array(n * m), t = 10, dx = 0.01, dy = 0.01, dt = Math.pow(dx,2)/(4*110), trigger = 0;
+					
+for (var j = 0, k = 0; j < m; ++j) {
+	for (var i = 0; i < n; ++i, ++k) {
+			T[k] = 0;
+	}
+}
+					
+//Start continuous plot
+var HeatPlot = setInterval(ContinuousHeatPlot, 75);
+					
+function ContinuousHeatPlot() {
+						
+	//Define drop-down parameter change function
+	Material.addEventListener("change", parameter_change);
+	Heat_Size.addEventListener("change", parameter_change);
+	Temperature.addEventListener("change", parameter_change);
+					
+	function parameter_change() {
+		var mat = document.getElementById("Material"), size = document.getElementById("Heat_Size"), temp = document.getElementById("Temperature");
+	}
+					
+	//Compute heat equation
+	for (var o = 1; o < t; ++o){
+		var Kt = parseFloat(mat.options[mat.selectedIndex].value)
+		for (var j = 1; j < m-1; ++j){
+			for (var i = 1; i < n-1; ++i){
+				xflux = (T[m*j+i+1] - 2*T[m*j+i] + T[m*j+i-1])/(Math.pow(dx,2));
+				yflux = (T[m*(j+1)+i] - 2*T[m*j+i] + T[m*(j-1)+i])/(Math.pow(dy,2));
+				T[m*j+i] = T[m*j+i] + dt*Kt*(xflux+yflux);
+			}
+		}
+	}
+					
+	//Contour plot data
+	var canvas = document.querySelector("canvas.heat_plot"),
+	context = canvas.getContext("2d"),
+	color = d3.scaleSequential(d3.interpolateRdBu).domain([10, 0]),
+	path = d3.geoPath(null, context),
+	thresholds = d3.range(-1, 10, 10/100),
+	contours = d3.contours().size([n, m]);
+	if (trigger == 0){
+		context.scale(canvas.width / (n), canvas.height / (m));
+		trigger = 1
+	}
+	contours.thresholds(thresholds.map(function(v) { return v + 0; }))(T).forEach(fill)
+					
+	function fill(geometry) {
+			context.beginPath();
+			path(geometry);
+			context.fillStyle = color(geometry.value);
+			context.fill();
+	}
+					
+	//Add heat to plot on clicks
+	heat_plot.addEventListener("click", getClickPosition, false);
+	function getClickPosition(e) {
+		var r_scale = parseInt(size.options[size.selectedIndex].value), Tin = parseInt(temp.options[temp.selectedIndex].value);
+		var plot = e.target.getBoundingClientRect();
+		var plot_height = plot.bottom - plot.top;
+		var plot_length = plot.right - plot.left;
+		var X = e.clientX - plot.left; 
+		var Y = e.clientY - plot.top;  
+		var x = Math.round(X/plot_length*n), y = Math.round(Y/plot_height*m), r = Math.floor(n/r_scale);
+					
+		for (var j = -r; j < r+1; ++j){
+			for (var i = -r; i < r; ++i){	
+				if (y+j > 0 && y+j < m-1 && x+i > 0 && x+i < n-1){
+					T[(m*(y+j))+(x+i)] = Tin
+				}
+			}
+		}
+	}
+}
+					
+</script>
